@@ -30,6 +30,9 @@ var (
 
 // HandleSpeechToText handles WebSocket connections for streaming audio data
 func HandleSpeechToText(w http.ResponseWriter, r *http.Request) {
+	// 요청 로깅
+	log.Printf("[INFO] Speech-to-Text API 요청: %s %s, RemoteAddr: %s", r.Method, r.URL.Path, r.RemoteAddr)
+
 	// Set CORS headers for WebSocket
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
@@ -45,14 +48,17 @@ func HandleSpeechToText(w http.ResponseWriter, r *http.Request) {
 	// Extract username from query parameter
 	username := r.URL.Query().Get("Username")
 	if username == "" {
+		log.Printf("[ERROR] Username query parameter is missing. RemoteAddr: %s", r.RemoteAddr)
 		http.Error(w, "Username query parameter is required", http.StatusBadRequest)
 		return
 	}
 
+	log.Printf("[INFO] Speech-to-Text 연결 시작 - Username: %s", username)
+
 	// Upgrade the HTTP connection to a WebSocket
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("Error upgrading to WebSocket: %v", err)
+		log.Printf("[ERROR] WebSocket 업그레이드 실패: %v, RemoteAddr: %s", err, r.RemoteAddr)
 		return
 	}
 	defer conn.Close()
@@ -61,10 +67,12 @@ func HandleSpeechToText(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 	client, err := speech.NewClient(ctx)
 	if err != nil {
-		log.Printf("Failed to create speech client: %v", err)
+		log.Printf("[ERROR] Google Speech 클라이언트 생성 실패: %v, Username: %s", err, username)
 		return
 	}
 	defer client.Close()
+
+	log.Printf("[INFO] Google Speech 클라이언트 생성 성공 - Username: %s", username)
 
 	// Create a speech recognition stream
 	stream, err := client.StreamingRecognize(ctx)
@@ -159,9 +167,16 @@ func HandleSpeechToText(w http.ResponseWriter, r *http.Request) {
 
 	// Wait for WebSocket to close
 	<-done
+	log.Printf("[INFO] WebSocket 연결 종료 - Username: %s", username)
 
 	// Get the final transcription
 	finalTranscription := <-transcriptionChan
+
+	if finalTranscription != "" {
+		log.Printf("[INFO] 최종 텍스트 변환 결과: %s, Username: %s", finalTranscription, username)
+	} else {
+		log.Printf("[WARN] 텍스트 변환 결과 없음 - Username: %s", username)
+	}
 
 	// Store conversation
 	if finalTranscription != "" {
@@ -178,9 +193,12 @@ func HandleSpeechToText(w http.ResponseWriter, r *http.Request) {
 		if conversations, exists := conversationStore[username]; exists {
 			// Add new conversation to existing list
 			conversationStore[username] = append(conversations, newConversation)
+			log.Printf("[INFO] 기존 대화 목록에 질문 추가 - Username: %s, 총 대화 수: %d",
+				username, len(conversationStore[username]))
 		} else {
 			// Create new conversation list for user
 			conversationStore[username] = []models.Conversation{newConversation}
+			log.Printf("[INFO] 새 대화 목록 생성 - Username: %s", username)
 		}
 	}
 }
