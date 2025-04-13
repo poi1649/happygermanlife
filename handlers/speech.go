@@ -131,7 +131,7 @@ func HandleSpeechToText(w http.ResponseWriter, r *http.Request) {
 						AudioContent: data,
 					},
 				}); err != nil {
-					log.Printf("Failed to send audio: %v", err)
+					log.Printf("Failed to send audio: %v", err.Error())
 					continue
 				}
 
