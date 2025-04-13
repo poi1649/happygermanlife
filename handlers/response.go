@@ -1,19 +1,18 @@
 package handlers
 
 import (
+	"awesomeProject2/models"
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
-	"awesomeProject2/models"
 )
 
 // GPT4ResponseFormat represents the expected response from OpenAI
 type GPT4ResponseFormat struct {
-	KoreanTranslation string   `json:"korean_translation"`
+	KoreanTranslation string     `json:"korean_translation"`
 	Responses         []Response `json:"responses"`
 }
 
@@ -54,7 +53,7 @@ func HandleGenerateResponse(w http.ResponseWriter, r *http.Request) {
 	// Extract latest question and previous conversation
 	latestIdx := len(conversations) - 1
 	latestQuestion := conversations[latestIdx].Question
-	
+
 	var previousQuestion, previousAnswer string
 	if latestIdx > 0 {
 		previousQuestion = conversations[latestIdx-1].Question
@@ -128,7 +127,7 @@ Format your response as a JSON object with the following structure:
 // callOpenAIAPI sends a request to the OpenAI API and returns the response
 func callOpenAIAPI(prompt string) ([]byte, error) {
 	url := "https://api.openai.com/v1/chat/completions"
-	
+
 	// Create request body
 	requestBody := map[string]interface{}{
 		"model": "gpt-4o",
@@ -144,22 +143,22 @@ func callOpenAIAPI(prompt string) ([]byte, error) {
 		},
 		"temperature": 0.7,
 	}
-	
+
 	requestJSON, err := json.Marshal(requestBody)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Create HTTP request
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(requestJSON))
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Set headers
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+models.GetOpenAIAPIKey())
-	
+
 	// Send request
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -167,18 +166,18 @@ func callOpenAIAPI(prompt string) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	
+
 	// Read response
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Check for error status code
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("OpenAI API error: %s", string(body))
 	}
-	
+
 	// Parse OpenAI response
 	var openAIResponse struct {
 		Choices []struct {
@@ -187,30 +186,30 @@ func callOpenAIAPI(prompt string) ([]byte, error) {
 			} `json:"message"`
 		} `json:"choices"`
 	}
-	
+
 	if err := json.Unmarshal(body, &openAIResponse); err != nil {
 		return nil, err
 	}
-	
+
 	if len(openAIResponse.Choices) == 0 {
 		return nil, fmt.Errorf("no response from OpenAI")
 	}
-	
+
 	// Extract the content (should be a JSON string)
 	responseContent := openAIResponse.Choices[0].Message.Content
-	
+
 	// Parse the content to verify it's valid JSON
 	var parsedResponse GPT4ResponseFormat
 	if err := json.Unmarshal([]byte(responseContent), &parsedResponse); err != nil {
 		// If it's not valid JSON, return a formatted JSON response
 		log.Printf("OpenAI didn't return valid JSON. Error: %v", err)
 		log.Printf("Response content: %s", responseContent)
-		
+
 		// Try to extract information and create a valid JSON response
 		// This is a fallback in case GPT doesn't return proper JSON
 		return createFallbackResponse(responseContent)
 	}
-	
+
 	// If it's valid JSON, return it
 	return []byte(responseContent), nil
 }
@@ -231,6 +230,6 @@ func createFallbackResponse(content string) ([]byte, error) {
 			},
 		},
 	}
-	
+
 	return json.Marshal(fallback)
 }
