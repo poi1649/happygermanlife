@@ -5,9 +5,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
+	"time"
 )
 
 // GPT4ResponseFormat represents the expected response from OpenAI
@@ -24,6 +25,18 @@ type Response struct {
 
 // HandleGenerateResponse handles requests to generate responses using GPT-4o
 func HandleGenerateResponse(w http.ResponseWriter, r *http.Request) {
+	// Set CORS headers
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "*")
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
+
+	// Handle preflight OPTIONS request
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -43,8 +56,25 @@ func HandleGenerateResponse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get user conversations
-	conversations, exists := GetConversations(requestBody.Username)
+	// Get user conversations with retry
+	var conversations []models.Conversation
+	var exists bool
+	maxRetries := 3
+	retryDelay := 200 * time.Millisecond
+
+	for i := 0; i < maxRetries; i++ {
+		conversations, exists = GetConversations(requestBody.Username)
+		if exists && len(conversations) > 0 {
+			break // Found conversations, no need to retry
+		}
+
+		if i < maxRetries-1 {
+			log.Printf("No conversations found for user: %s, retrying in %v... (attempt %d/%d)",
+				requestBody.Username, retryDelay, i+1, maxRetries)
+			time.Sleep(retryDelay)
+		}
+	}
+
 	if !exists || len(conversations) == 0 {
 		http.Error(w, "No conversations found for this user", http.StatusNotFound)
 		return
@@ -168,7 +198,7 @@ func callOpenAIAPI(prompt string) ([]byte, error) {
 	defer resp.Body.Close()
 
 	// Read response
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -207,7 +237,7 @@ func callOpenAIAPI(prompt string) ([]byte, error) {
 
 		// Try to extract information and create a valid JSON response
 		// This is a fallback in case GPT doesn't return proper JSON
-		return createFallbackResponse(responseContent)
+		return createFallbackResponse()
 	}
 
 	// If it's valid JSON, return it
@@ -215,7 +245,7 @@ func callOpenAIAPI(prompt string) ([]byte, error) {
 }
 
 // createFallbackResponse attempts to create a valid JSON response when GPT doesn't return proper JSON
-func createFallbackResponse(content string) ([]byte, error) {
+func createFallbackResponse() ([]byte, error) {
 	// Simple fallback - in a real application, you might want to do more sophisticated parsing
 	fallback := GPT4ResponseFormat{
 		KoreanTranslation: "Translation could not be parsed",

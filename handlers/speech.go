@@ -18,8 +18,9 @@ var (
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
 		CheckOrigin: func(r *http.Request) bool {
-			return true // Allow all connections for now, adjust as needed
+			return true // Allow all connections for local testing
 		},
+		EnableCompression: true,
 	}
 
 	// In-memory data store for conversations
@@ -29,10 +30,22 @@ var (
 
 // HandleSpeechToText handles WebSocket connections for streaming audio data
 func HandleSpeechToText(w http.ResponseWriter, r *http.Request) {
-	// Extract username from header
-	username := r.Header.Get("Username")
+	// Set CORS headers for WebSocket
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "*")
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
+
+	// Handle preflight OPTIONS request
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// Extract username from query parameter
+	username := r.URL.Query().Get("Username")
 	if username == "" {
-		http.Error(w, "Username header is required", http.StatusBadRequest)
+		http.Error(w, "Username query parameter is required", http.StatusBadRequest)
 		return
 	}
 

@@ -41,7 +41,7 @@ go run main.go -port=8000
 
 - **URL**: `/api/speech`
 - **Method**: WebSocket
-- **Headers**:
+- **Query Parameters**:
   - `Username`: Required. The name of the user.
 - **Description**: Establishes a WebSocket connection for streaming audio data to be transcribed.
 

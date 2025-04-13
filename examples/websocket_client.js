@@ -1,7 +1,7 @@
 // Example WebSocket client for testing the Speech-to-Text streaming API
 
 // Configuration
-const SERVER_URL = 'ws://localhost:8080/api/speech';
+const SERVER_URL = `ws://localhost:8080/api/speech?Username=${encodeURIComponent('test_user')}`;
 const USERNAME = 'test_user';
 
 // Sample audio recording function (simplified)
@@ -26,10 +26,8 @@ function startRecording() {
 function connectToServer() {
   const socket = new WebSocket(SERVER_URL);
   
-  // Add username header using a custom protocol header
-  // Note: In a real application, you might need to handle this differently
-  // as WebSocket spec doesn't directly support custom headers.
-  // You might need to pass username as a query parameter instead.
+  // Add username as a query parameter
+  // WebSocket URL should already include the Username query parameter
   socket.addEventListener('open', (event) => {
     console.log('Connected to server');
     

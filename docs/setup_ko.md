@@ -41,7 +41,7 @@ go run main.go -port=8000
 
 - **URL**: `/api/speech`
 - **방식**: WebSocket
-- **헤더**:
+- **쿼리 파라미터**:
   - `Username`: 필수. 사용자의 이름.
 - **설명**: 음성 데이터를 전송하고 텍스트로 변환하기 위한 WebSocket 연결을 설정합니다.
 
