@@ -123,6 +123,12 @@ func HandleSpeechToText(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
+			if messageType == websocket.CloseMessage {
+				log.Printf("WebSocket closed by client")
+				transcriptionChan <- finalTranscription
+				return
+			}
+
 			// Only process binary messages (audio data)
 			if messageType == websocket.BinaryMessage {
 				// Send audio data to Speech-to-Text
