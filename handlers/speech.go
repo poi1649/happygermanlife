@@ -114,6 +114,7 @@ func HandleSpeechToText(w http.ResponseWriter, r *http.Request) {
 			// Read message from WebSocket
 			messageType, data, err := conn.ReadMessage()
 			log.Printf("WebSocket received type: %v", messageType)
+			log.Printf("WebSocket received data: %v", data)
 			if err != nil {
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 					log.Printf("WebSocket error: %v", err)
