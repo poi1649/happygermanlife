@@ -5,7 +5,6 @@ import (
 	speech "cloud.google.com/go/speech/apiv1"
 	speechpb "cloud.google.com/go/speech/apiv1/speechpb"
 	"context"
-	"fmt"
 	"github.com/gorilla/websocket"
 	"io"
 	"log"
@@ -89,14 +88,20 @@ func HandleSpeechToText(w http.ResponseWriter, r *http.Request) {
 					Encoding:        speechpb.RecognitionConfig_LINEAR16,
 					SampleRateHertz: 16000,
 					LanguageCode:    "de-DE", // German language
+					// 오디오 채널 수 (mono)
+					AudioChannelCount: 1,
+					// 다른 인코딩 포맷도 지원
+					// Encoding: speechpb.RecognitionConfig_WEBM_OPUS, // WEBM_OPUS 인코딩 사용 시
 				},
 				InterimResults: true,
 			},
 		},
 	}); err != nil {
-		log.Printf("Failed to send config: %v", err)
+		log.Printf("[ERROR] Speech 설정 전송 실패: %v", err)
 		return
 	}
+
+	log.Printf("[INFO] Google Speech API 설정 완료 - 인코딩: LINEAR16, 샘플 레이트: 16000Hz, 언어: de-DE")
 
 	// Channel to signal when WebSocket is closed
 	done := make(chan struct{})
@@ -113,11 +118,13 @@ func HandleSpeechToText(w http.ResponseWriter, r *http.Request) {
 		for {
 			// Read message from WebSocket
 			messageType, data, err := conn.ReadMessage()
-			log.Printf("WebSocket received type: %v", messageType)
-			log.Printf("WebSocket received data: %v", data)
+			log.Printf("[INFO] WebSocket 수신 메시지 타입: %d (1=텍스트, 2=바이너리), 데이터 길이: %d 바이트", messageType, len(data))
+
 			if err != nil {
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-					log.Printf("WebSocket error: %v", err)
+					log.Printf("[ERROR] WebSocket 에러: %v", err)
+				} else {
+					log.Printf("[INFO] WebSocket 연결 종료: %v", err)
 				}
 				// When connection closes, send the final transcription
 				transcriptionChan <- finalTranscription
@@ -125,48 +132,79 @@ func HandleSpeechToText(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if messageType == websocket.CloseMessage {
-				log.Printf("WebSocket closed by client")
+				log.Printf("[INFO] WebSocket 클라이언트에 의해 정상 종료됨")
 				transcriptionChan <- finalTranscription
 				return
 			}
 
+			if messageType == websocket.TextMessage {
+				log.Printf("[INFO] 텍스트 메시지 수신: %s", string(data))
+				// 텍스트 메시지 처리 (필요시)
+				continue
+			}
+
 			// Only process binary messages (audio data)
 			if messageType == websocket.BinaryMessage {
-				// Send audio data to Speech-to-Text
+				log.Printf("[INFO] 오디오 바이너리 데이터 수신 - 크기: %d 바이트", len(data))
+
+				// 첫 16바이트를 로깅 (디버깅용)
+				if len(data) > 16 {
+					log.Printf("[DEBUG] 오디오 데이터 시작 바이트: % x", data[:16])
+				}
+				// 클라이언트가 전송한 바이너리 데이터를 Google Speech API로 전송
 				if err := stream.Send(&speechpb.StreamingRecognizeRequest{
 					StreamingRequest: &speechpb.StreamingRecognizeRequest_AudioContent{
 						AudioContent: data,
 					},
 				}); err != nil {
-					log.Printf("Failed to send audio: %v", err.Error())
+					log.Printf("[ERROR] 오디오 데이터 전송 실패: %v", err)
 					continue
 				}
 
-				// Receive transcription results
+				log.Printf("[INFO] 오디오 데이터 청크 (%d 바이트) 전송 완료", len(data))
+
+				// Google Speech API로부터 변환 결과 수신
 				resp, err := stream.Recv()
 				if err != nil {
 					if err == io.EOF {
+						log.Printf("[INFO] 스트림 종료 (EOF)")
 						break
 					}
-					log.Printf("Failed to receive response: %v", err)
+					log.Printf("[ERROR] 응답 수신 실패: %v", err)
 					continue
 				}
 
-				// Process results
+				log.Printf("[INFO] Google Speech API 응답 수신 - 결과 수: %d", len(resp.Results))
+
+				// 변환 결과 처리
 				for _, result := range resp.Results {
-					transcript := result.Alternatives[0].Transcript
+					if len(result.Alternatives) > 0 {
+						transcript := result.Alternatives[0].Transcript
+						confidence := result.Alternatives[0].Confidence
 
-					// Send intermediate results back to client
-					if err := conn.WriteJSON(map[string]string{
-						"transcript": transcript,
-						"final":      fmt.Sprintf("%t", result.IsFinal),
-					}); err != nil {
-						log.Printf("Failed to write to WebSocket: %v", err)
-					}
+						log.Printf("[INFO] 변환 결과: '%s', 확실성: %.2f, 최종여부: %t",
+							transcript, confidence, result.IsFinal)
 
-					// Update final transcription if result is final
-					if result.IsFinal {
-						finalTranscription = transcript
+						// 중간 결과를 클라이언트에 전송
+						response := map[string]interface{}{
+							"transcript": transcript,
+							"final":      result.IsFinal,
+							"confidence": confidence,
+						}
+
+						if err := conn.WriteJSON(response); err != nil {
+							log.Printf("[ERROR] WebSocket 메시지 전송 실패: %v", err)
+						} else {
+							log.Printf("[INFO] 클라이언트에 결과 전송 완료")
+						}
+
+						// 최종 결과인 경우 저장
+						if result.IsFinal {
+							finalTranscription = transcript
+							log.Printf("[INFO] 최종 텍스트 업데이트: %s", finalTranscription)
+						}
+					} else {
+						log.Printf("[WARN] 변환 결과에 대안이 없음")
 					}
 				}
 			}
